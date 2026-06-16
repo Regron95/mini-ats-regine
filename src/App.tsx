@@ -1,0 +1,41 @@
+import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./lib/supabase";
+import LoginPage from "./pages/LoginPage";
+import AdminDashboard from "./pages/AdminDashboard";
+import CustomerDashboard from "./pages/CustomerDashboard";
+import JobDetailPage from "./pages/JobDetailPage";
+
+function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) return null;
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={session ? <Navigate to="/dashboard" /> : <LoginPage />} />
+        <Route path="/admin" element={session ? <AdminDashboard /> : <Navigate to="/" />} />
+        <Route path="/dashboard" element={session ? <CustomerDashboard /> : <Navigate to="/" />} />
+        <Route path="/jobs/:id" element={session ? <JobDetailPage /> : <Navigate to="/" />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
