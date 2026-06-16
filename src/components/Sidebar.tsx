@@ -6,11 +6,12 @@ type SidebarLink = {
 
 type SidebarProps = {
   email?: string;
+  role?: "admin" | "customer";
   links: SidebarLink[];
   onLogout: () => void;
 };
 
-function Sidebar({ email, links, onLogout }: SidebarProps) {
+function Sidebar({ email, role, links, onLogout }: SidebarProps) {
   return (
     <aside className="w-56 shrink-0 bg-white border-r border-violet-100 flex flex-col">
       <div className="px-4 py-5 border-b border-violet-100">
@@ -40,6 +41,15 @@ function Sidebar({ email, links, onLogout }: SidebarProps) {
       </nav>
 
       <div className="px-4 py-4 border-t border-violet-100">
+        {role && (
+          <span className={`inline-block text-xs font-bold px-2.5 py-0.5 rounded-full mb-2 ${
+            role === "admin"
+              ? "bg-amber-100 text-amber-700"
+              : "bg-violet-100 text-violet-700"
+          }`}>
+            {role === "admin" ? "Admin" : "Kund"}
+          </span>
+        )}
         {email && <p className="text-xs text-gray-400 truncate mb-2">{email}</p>}
         <button
           type="button"

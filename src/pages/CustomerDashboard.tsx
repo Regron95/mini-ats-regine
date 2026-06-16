@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import Sidebar from "../components/Sidebar";
+import { logActivity } from "../lib/activity";
+import { ADMIN_NAV } from "../lib/adminNav";
 
 type Job = {
   id: string;
@@ -10,6 +12,8 @@ type Job = {
   created_at: string;
 };
 
+type JobErrors = { title?: string };
+
 function CustomerDashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,13 +21,22 @@ function CustomerDashboard() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<JobErrors>({});
   const [email, setEmail] = useState("");
+  const [userRole, setUserRole] = useState<"admin" | "customer">("customer");
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     fetchJobs();
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       setEmail(user?.email ?? "");
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user!.id)
+        .single();
+      setUserRole((profile?.role as "admin" | "customer") ?? "customer");
     });
   }, []);
 
@@ -36,8 +49,17 @@ function CustomerDashboard() {
     setLoading(false);
   }
 
+  function validate(): boolean {
+    const e: JobErrors = {};
+    if (!title.trim()) e.title = "Titel är obligatorisk";
+    else if (title.trim().length < 2) e.title = "Minst 2 tecken";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
   async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault();
+    if (!validate()) return;
     setSaving(true);
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -48,14 +70,14 @@ function CustomerDashboard() {
       .single();
 
     if (!profile?.company_id) {
-      alert("Din användare är inte kopplad till ett företag. Kör SQL:en från steg 6 i Supabase.");
+      alert("Din användare är inte kopplad till ett företag. Kontakta din administratör.");
       setSaving(false);
       return;
     }
 
     const { error } = await supabase.from("jobs").insert({
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim() || null,
       company_id: profile.company_id,
     });
 
@@ -70,6 +92,7 @@ function CustomerDashboard() {
     setShowForm(false);
     setSaving(false);
     fetchJobs();
+    logActivity("job_created", title.trim());
   }
 
   async function handleDeleteJob(jobId: string, jobTitle: string) {
@@ -82,20 +105,25 @@ function CustomerDashboard() {
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
-  }
-
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         email={email}
-        links={[{ label: "Jobb", onClick: () => {}, active: true }]}
-        onLogout={handleLogout}
+        role={userRole}
+        links={
+          userRole === "admin"
+            ? ADMIN_NAV.map((item) => ({
+                label: item.label,
+                onClick: () => navigate(item.path),
+                active: location.pathname === item.path,
+              }))
+            : [{ label: "Jobb", onClick: () => {}, active: true }]
+        }
+        onLogout={async () => await supabase.auth.signOut()}
       />
 
       <div className="flex-1 overflow-y-auto bg-violet-50/30">
-        <header className="bg-white border-b border-violet-100 px-8 py-5 flex items-center justify-between sticky top-0 z-10">
+        <header className="bg-white border-b border-violet-100 px-4 sm:px-8 py-5 flex items-center justify-between sticky top-0 z-10">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Jobb</h1>
             {!loading && (
@@ -104,14 +132,14 @@ function CustomerDashboard() {
           </div>
           <button
             type="button"
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => { setShowForm(!showForm); setErrors({}); }}
             className="bg-violet-600 text-white text-sm rounded-xl px-4 py-2 hover:bg-violet-700 cursor-pointer font-medium transition-colors shadow-sm"
           >
             {showForm ? "Avbryt" : "+ Skapa nytt jobb"}
           </button>
         </header>
 
-        <main className="px-8 py-6">
+        <main className="px-4 sm:px-8 py-6">
           {showForm && (
             <form
               onSubmit={handleCreateJob}
@@ -126,11 +154,17 @@ function CustomerDashboard() {
                   id="job-title"
                   type="text"
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
+                  onChange={(e) => { setTitle(e.target.value); setErrors({}); }}
                   placeholder="t.ex. Frontend-utvecklare"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent bg-gray-50 focus:bg-white transition-colors"
+                  className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 bg-gray-50 focus:bg-white transition-colors ${
+                    errors.title
+                      ? "border-red-300 focus:ring-red-300"
+                      : "border-gray-200 focus:ring-violet-400"
+                  }`}
                 />
+                {errors.title && (
+                  <p className="text-xs text-red-500 mt-1">{errors.title}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="job-description" className="block text-sm font-medium text-gray-700 mb-1">
@@ -142,7 +176,7 @@ function CustomerDashboard() {
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                   placeholder="Beskriv rollen och vad ni söker…"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent bg-gray-50 focus:bg-white transition-colors"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
                 />
               </div>
               <button
@@ -192,7 +226,7 @@ function CustomerDashboard() {
                     )}
                   </button>
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-gray-300">
+                    <span className="text-xs text-gray-300 hidden sm:block">
                       {new Date(job.created_at).toLocaleDateString("sv-SE")}
                     </span>
                     <button

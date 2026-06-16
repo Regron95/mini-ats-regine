@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import Sidebar from "../components/Sidebar";
+import { logActivity } from "../lib/activity";
 
 type CandidateStatus = "applied" | "screening" | "interview" | "offer" | "rejected";
 
@@ -19,6 +20,12 @@ type Candidate = {
   linkedin_url: string | null;
   cv_text: string | null;
   status: CandidateStatus;
+};
+
+type CandidateErrors = {
+  name?: string;
+  email?: string;
+  linkedin_url?: string;
 };
 
 const COLUMNS: {
@@ -45,12 +52,7 @@ function getAvatarColor(name: string): string {
 }
 
 function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((w) => w[0] ?? "")
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  return name.split(" ").map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase();
 }
 
 function JobDetailPage() {
@@ -67,24 +69,20 @@ function JobDetailPage() {
   const [newLinkedin, setNewLinkedin] = useState("");
   const [newCvText, setNewCvText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<CandidateErrors>({});
   const [email, setEmail] = useState("");
   const [assessments, setAssessments] = useState<Record<string, Assessment>>({});
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
+  const [mobileColumn, setMobileColumn] = useState<CandidateStatus>("applied");
 
   useEffect(() => {
     fetchJob();
     fetchCandidates();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setEmail(user?.email ?? "");
-    });
+    supabase.auth.getUser().then(({ data: { user } }) => setEmail(user?.email ?? ""));
   }, [id]);
 
   async function fetchJob() {
-    const { data } = await supabase
-      .from("jobs")
-      .select("title")
-      .eq("id", id)
-      .single();
+    const { data } = await supabase.from("jobs").select("title").eq("id", id).single();
     if (data) setJobTitle(data.title);
   }
 
@@ -98,16 +96,34 @@ function JobDetailPage() {
     setLoading(false);
   }
 
+  function validate(): boolean {
+    const e: CandidateErrors = {};
+    if (!newName.trim()) {
+      e.name = "Namn är obligatoriskt";
+    } else if (newName.trim().length < 2) {
+      e.name = "Minst 2 tecken";
+    }
+    if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      e.email = "Ogiltig e-postadress";
+    }
+    if (newLinkedin && !newLinkedin.startsWith("http")) {
+      e.linkedin_url = "Måste vara en giltig URL (börja med https://)";
+    }
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
   async function handleAddCandidate(e: React.FormEvent) {
     e.preventDefault();
+    if (!validate()) return;
     setSaving(true);
 
     const { error } = await supabase.from("candidates").insert({
       job_id: id,
-      name: newName,
-      email: newEmail || null,
-      linkedin_url: newLinkedin || null,
-      cv_text: newCvText || null,
+      name: newName.trim(),
+      email: newEmail.trim() || null,
+      linkedin_url: newLinkedin.trim() || null,
+      cv_text: newCvText.trim() || null,
       status: "applied",
     });
 
@@ -117,38 +133,37 @@ function JobDetailPage() {
       return;
     }
 
-    setNewName("");
-    setNewEmail("");
-    setNewLinkedin("");
-    setNewCvText("");
+    setNewName(""); setNewEmail(""); setNewLinkedin(""); setNewCvText("");
     setShowForm(false);
     setSaving(false);
     fetchCandidates();
+    logActivity("candidate_added", newName.trim(), { job_title: jobTitle });
   }
 
   async function handleStatusChange(candidateId: string, newStatus: CandidateStatus) {
-    await supabase
-      .from("candidates")
-      .update({ status: newStatus })
-      .eq("id", candidateId);
+    const candidate = candidates.find((c) => c.id === candidateId);
+    await supabase.from("candidates").update({ status: newStatus }).eq("id", candidateId);
     setCandidates((prev) =>
       prev.map((c) => (c.id === candidateId ? { ...c, status: newStatus } : c))
     );
+    if (candidate) {
+      logActivity("status_changed", candidate.name, {
+        from_status: candidate.status,
+        to_status: newStatus,
+      });
+    }
   }
 
   async function handleAssessCV(candidate: Candidate) {
     setAssessing((prev) => ({ ...prev, [candidate.id]: true }));
-
     const { data, error } = await supabase.functions.invoke("assess-cv", {
       body: { cv_text: candidate.cv_text, job_title: jobTitle },
     });
-
     if (error || !data) {
       alert("Fel vid CV-bedömning: " + (error?.message ?? "Okänt fel"));
       setAssessing((prev) => ({ ...prev, [candidate.id]: false }));
       return;
     }
-
     setAssessments((prev) => ({ ...prev, [candidate.id]: data as Assessment }));
     setAssessing((prev) => ({ ...prev, [candidate.id]: false }));
   }
@@ -157,45 +172,55 @@ function JobDetailPage() {
     c.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const inputClass = (hasError: boolean) =>
+    `w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 bg-gray-50 focus:bg-white transition-colors ${
+      hasError ? "border-red-300 focus:ring-red-300" : "border-gray-200 focus:ring-violet-400"
+    }`;
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         email={email}
+        role="customer"
         links={[{ label: "← Alla jobb", onClick: () => navigate("/dashboard") }]}
         onLogout={async () => await supabase.auth.signOut()}
       />
 
       <div className="flex-1 overflow-hidden flex flex-col bg-violet-50/30">
-        <header className="bg-white border-b border-violet-100 px-6 py-4 flex items-center justify-between shrink-0">
-          <div>
-            <p className="text-xs text-violet-400 mb-0.5 font-medium uppercase tracking-wide">Jobb</p>
-            <h1 className="text-lg font-semibold text-gray-900">{jobTitle}</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Sök kandidat…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="border border-gray-200 rounded-xl pl-8 pr-3 py-2 text-sm w-52 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
-              />
-              <span className="absolute left-2.5 top-2.5 text-gray-300 text-xs">🔍</span>
+        {/* Header */}
+        <header className="bg-white border-b border-violet-100 px-4 sm:px-6 py-4 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-xs text-violet-400 mb-0.5 font-medium uppercase tracking-wide">Jobb</p>
+              <h1 className="text-lg font-semibold text-gray-900">{jobTitle}</h1>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowForm(!showForm)}
-              className="bg-violet-600 text-white text-sm rounded-xl px-4 py-2 hover:bg-violet-700 cursor-pointer font-medium transition-colors shadow-sm"
-            >
-              {showForm ? "Avbryt" : "+ Lägg till kandidat"}
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 sm:flex-none">
+                <input
+                  type="text"
+                  placeholder="Sök kandidat…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="border border-gray-200 rounded-xl pl-8 pr-3 py-2 text-sm w-full sm:w-48 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
+                />
+                <span className="absolute left-2.5 top-2.5 text-gray-300 text-xs">🔍</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowForm(!showForm); setErrors({}); }}
+                className="bg-violet-600 text-white text-sm rounded-xl px-4 py-2 hover:bg-violet-700 cursor-pointer font-medium transition-colors shadow-sm shrink-0"
+              >
+                {showForm ? "Avbryt" : "+ Lägg till"}
+              </button>
+            </div>
           </div>
         </header>
 
+        {/* Kandidatformulär */}
         {showForm && (
-          <div className="bg-white border-b border-violet-100 px-6 py-4 shrink-0">
+          <div className="bg-white border-b border-violet-100 px-4 sm:px-6 py-4 shrink-0 overflow-y-auto max-h-80">
             <form onSubmit={handleAddCandidate} className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label htmlFor="cand-name" className="block text-xs font-medium text-gray-600 mb-1">
                     Namn *
@@ -204,11 +229,11 @@ function JobDetailPage() {
                     id="cand-name"
                     type="text"
                     value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    required
+                    onChange={(e) => { setNewName(e.target.value); setErrors((p) => ({ ...p, name: undefined })); }}
                     placeholder="Anna Svensson"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
+                    className={inputClass(!!errors.name)}
                   />
+                  {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
                 </div>
                 <div>
                   <label htmlFor="cand-email" className="block text-xs font-medium text-gray-600 mb-1">
@@ -216,12 +241,13 @@ function JobDetailPage() {
                   </label>
                   <input
                     id="cand-email"
-                    type="email"
+                    type="text"
                     value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
+                    onChange={(e) => { setNewEmail(e.target.value); setErrors((p) => ({ ...p, email: undefined })); }}
                     placeholder="anna@exempel.se"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
+                    className={inputClass(!!errors.email)}
                   />
+                  {errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
                 </div>
                 <div>
                   <label htmlFor="cand-linkedin" className="block text-xs font-medium text-gray-600 mb-1">
@@ -229,12 +255,13 @@ function JobDetailPage() {
                   </label>
                   <input
                     id="cand-linkedin"
-                    type="url"
+                    type="text"
                     value={newLinkedin}
-                    onChange={(e) => setNewLinkedin(e.target.value)}
+                    onChange={(e) => { setNewLinkedin(e.target.value); setErrors((p) => ({ ...p, linkedin_url: undefined })); }}
                     placeholder="https://linkedin.com/in/…"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
+                    className={inputClass(!!errors.linkedin_url)}
                   />
+                  {errors.linkedin_url && <p className="text-xs text-red-500 mt-1">{errors.linkedin_url}</p>}
                 </div>
               </div>
               <div>
@@ -245,7 +272,7 @@ function JobDetailPage() {
                   id="cand-cv"
                   value={newCvText}
                   onChange={(e) => setNewCvText(e.target.value)}
-                  rows={4}
+                  rows={3}
                   placeholder="Klistra in CV-text här…"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
                 />
@@ -261,7 +288,29 @@ function JobDetailPage() {
           </div>
         )}
 
-        <div className="flex-1 overflow-x-auto overflow-y-hidden px-6 py-5">
+        {/* Mobil kolumnväljare */}
+        <div className="flex gap-2 px-4 pt-4 overflow-x-auto pb-1 lg:hidden shrink-0">
+          {COLUMNS.map((col) => {
+            const count = filtered.filter((c) => c.status === col.key).length;
+            return (
+              <button
+                key={col.key}
+                type="button"
+                onClick={() => setMobileColumn(col.key)}
+                className={`shrink-0 text-xs font-medium px-3 py-1.5 rounded-full transition-colors cursor-pointer ${
+                  mobileColumn === col.key
+                    ? "bg-violet-600 text-white shadow-sm"
+                    : "bg-white border border-violet-100 text-gray-600 hover:border-violet-300"
+                }`}
+              >
+                {col.label} {count > 0 && `(${count})`}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Kanban */}
+        <div className="flex-1 overflow-x-auto overflow-y-hidden px-4 sm:px-6 py-4">
           {loading ? (
             <p className="text-sm text-gray-400">Laddar…</p>
           ) : (
@@ -271,9 +320,9 @@ function JobDetailPage() {
                 return (
                   <div
                     key={col.key}
-                    className={`shrink-0 w-64 bg-white rounded-2xl border border-violet-100 border-t-4 ${col.border} flex flex-col overflow-hidden shadow-sm`}
+                    className={`${col.key !== mobileColumn ? "hidden lg:flex" : "flex"} flex-col w-full lg:w-64 lg:shrink-0 bg-white rounded-2xl border border-violet-100 border-t-4 ${col.border} overflow-hidden shadow-sm`}
                   >
-                    <div className={`px-4 py-3 flex items-center justify-between border-b border-violet-50 ${col.bg}`}>
+                    <div className={`px-4 py-3 flex items-center justify-between border-b border-violet-50 ${col.bg} shrink-0`}>
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${col.dot}`} />
                         <h3 className="text-sm font-semibold text-gray-700">{col.label}</h3>
@@ -290,16 +339,12 @@ function JobDetailPage() {
                         return (
                           <div key={c.id} className="bg-white rounded-xl p-3 border border-violet-100 shadow-sm">
                             <div className="flex items-start gap-2.5 mb-2">
-                              <div
-                                className={`w-8 h-8 rounded-full ${getAvatarColor(c.name)} flex items-center justify-center shrink-0`}
-                              >
+                              <div className={`w-8 h-8 rounded-full ${getAvatarColor(c.name)} flex items-center justify-center shrink-0`}>
                                 <span className="text-white text-xs font-bold">{getInitials(c.name)}</span>
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-semibold text-gray-900 leading-tight">{c.name}</p>
-                                {c.email && (
-                                  <p className="text-xs text-gray-400 truncate">{c.email}</p>
-                                )}
+                                {c.email && <p className="text-xs text-gray-400 truncate">{c.email}</p>}
                               </div>
                             </div>
 
@@ -317,15 +362,11 @@ function JobDetailPage() {
                             <select
                               aria-label={`Status för ${c.name}`}
                               value={c.status}
-                              onChange={(e) =>
-                                handleStatusChange(c.id, e.target.value as CandidateStatus)
-                              }
+                              onChange={(e) => handleStatusChange(c.id, e.target.value as CandidateStatus)}
                               className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 cursor-pointer text-gray-600"
                             >
                               {COLUMNS.map((s) => (
-                                <option key={s.key} value={s.key}>
-                                  {s.label}
-                                </option>
+                                <option key={s.key} value={s.key}>{s.label}</option>
                               ))}
                             </select>
 
@@ -344,15 +385,11 @@ function JobDetailPage() {
                               <div className="mt-2 rounded-xl bg-violet-50 border border-violet-100 p-2.5 text-xs space-y-2">
                                 <div className="flex items-center justify-between">
                                   <span className="text-gray-500 font-medium">Matchning</span>
-                                  <span
-                                    className={`font-bold text-sm ${
-                                      assessment.matchning >= 7
-                                        ? "text-emerald-600"
-                                        : assessment.matchning >= 4
-                                        ? "text-amber-500"
-                                        : "text-rose-500"
-                                    }`}
-                                  >
+                                  <span className={`font-bold text-sm ${
+                                    assessment.matchning >= 7 ? "text-emerald-600"
+                                    : assessment.matchning >= 4 ? "text-amber-500"
+                                    : "text-rose-500"
+                                  }`}>
                                     {assessment.matchning}/10
                                   </span>
                                 </div>
@@ -362,10 +399,7 @@ function JobDetailPage() {
                                     <p className="font-semibold text-emerald-700 mb-1">Styrkor</p>
                                     <ul className="space-y-0.5 text-gray-600">
                                       {assessment.styrkor.map((s, i) => (
-                                        <li key={i} className="flex gap-1">
-                                          <span className="text-emerald-500 shrink-0">+</span>
-                                          <span>{s}</span>
-                                        </li>
+                                        <li key={i} className="flex gap-1"><span className="text-emerald-500 shrink-0">+</span><span>{s}</span></li>
                                       ))}
                                     </ul>
                                   </div>
@@ -375,10 +409,7 @@ function JobDetailPage() {
                                     <p className="font-semibold text-rose-600 mb-1">Svagheter</p>
                                     <ul className="space-y-0.5 text-gray-600">
                                       {assessment.svagheter.map((s, i) => (
-                                        <li key={i} className="flex gap-1">
-                                          <span className="text-rose-400 shrink-0">−</span>
-                                          <span>{s}</span>
-                                        </li>
+                                        <li key={i} className="flex gap-1"><span className="text-rose-400 shrink-0">−</span><span>{s}</span></li>
                                       ))}
                                     </ul>
                                   </div>
@@ -388,7 +419,6 @@ function JobDetailPage() {
                           </div>
                         );
                       })}
-
                       {colCandidates.length === 0 && (
                         <p className="text-xs text-gray-300 text-center py-6">Inga kandidater</p>
                       )}

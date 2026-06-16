@@ -13,6 +13,10 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const navigate = useNavigate();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -39,6 +43,16 @@ function LoginPage() {
 
     navigate(profile?.role === "admin" ? "/admin" : "/dashboard");
     setLoading(false);
+  }
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setResetLoading(true);
+    await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+      redirectTo: window.location.origin,
+    });
+    setResetSent(true);
+    setResetLoading(false);
   }
 
   return (
@@ -109,55 +123,122 @@ function LoginPage() {
             <span className="text-gray-900 font-semibold text-sm">Mini ATS</span>
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900 mb-1 tracking-tight">
-            Välkommen tillbaka
-          </h2>
-          <p className="text-sm text-gray-400 mb-8">Logga in för att fortsätta.</p>
+          {mode === "login" ? (
+            <>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1 tracking-tight">
+                Välkommen tillbaka
+              </h2>
+              <p className="text-sm text-gray-400 mb-8">Logga in för att fortsätta.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
-                E-post
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                placeholder="du@exempel.se"
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Lösenord
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
-              />
-            </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                    E-post
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="du@exempel.se"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                      Lösenord
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => { setMode("forgot"); setResetEmail(email); setError(""); }}
+                      className="text-xs text-violet-500 hover:text-violet-700 transition-colors cursor-pointer"
+                    >
+                      Glömt lösenord?
+                    </button>
+                  </div>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    placeholder="••••••••"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
+                  />
+                </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                <p className="text-sm text-red-500">{error}</p>
-              </div>
-            )}
+                {error && (
+                  <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                    <p className="text-sm text-red-500">{error}</p>
+                  </div>
+                )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-violet-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 cursor-pointer transition-colors shadow-sm"
-            >
-              {loading ? "Loggar in…" : "Logga in"}
-            </button>
-          </form>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-violet-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 cursor-pointer transition-colors shadow-sm"
+                >
+                  {loading ? "Loggar in…" : "Logga in"}
+                </button>
+              </form>
+
+              <p className="text-sm text-gray-400 text-center mt-6">
+                Har du inget konto?{" "}
+                <span className="text-violet-600 font-medium">Begär tillgång</span>
+                {" "}av din administratör.
+              </p>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => { setMode("login"); setResetSent(false); setResetEmail(""); }}
+                className="text-sm text-gray-400 hover:text-gray-600 transition-colors cursor-pointer mb-6 flex items-center gap-1"
+              >
+                ← Tillbaka till inloggning
+              </button>
+
+              <h2 className="text-2xl font-bold text-gray-900 mb-1 tracking-tight">
+                Glömt lösenord?
+              </h2>
+              <p className="text-sm text-gray-400 mb-8">
+                Ange din e-post så skickar vi en återställningslänk.
+              </p>
+
+              {resetSent ? (
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-4 text-center">
+                  <p className="text-sm font-semibold text-emerald-700 mb-1">Kolla din e-post!</p>
+                  <p className="text-xs text-emerald-600">Vi har skickat en återställningslänk till {resetEmail}.</p>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <div>
+                    <label htmlFor="reset-email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                      E-post
+                    </label>
+                    <input
+                      id="reset-email"
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      required
+                      placeholder="du@exempel.se"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={resetLoading}
+                    className="w-full bg-violet-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-violet-700 disabled:opacity-50 cursor-pointer transition-colors shadow-sm"
+                  >
+                    {resetLoading ? "Skickar…" : "Skicka återställningslänk"}
+                  </button>
+                </form>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

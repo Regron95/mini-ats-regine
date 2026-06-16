@@ -1,25 +1,58 @@
 import { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import Sidebar from "../components/Sidebar";
+import { logActivity } from "../lib/activity";
+import { ADMIN_NAV } from "../lib/adminNav";
 
 type Company = { id: string; name: string };
 type Profile = { id: string; email: string | null; role: string; company_id: string | null };
 
+type CompanyErrors = { name?: string };
+type UserErrors = { email?: string; password?: string };
+
 function AdminDashboard() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [email, setEmail] = useState("");
+  const [stats, setStats] = useState({ companies: 0, users: 0, jobs: 0, candidates: 0 });
+
   const [newCompanyName, setNewCompanyName] = useState("");
   const [showCompanyForm, setShowCompanyForm] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [email, setEmail] = useState("");
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [companyErrors, setCompanyErrors] = useState<CompanyErrors>({});
+
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState("customer");
+  const [newUserCompany, setNewUserCompany] = useState("");
+  const [savingUser, setSavingUser] = useState(false);
+  const [userErrors, setUserErrors] = useState<UserErrors>({});
 
   useEffect(() => {
     fetchCompanies();
     fetchProfiles();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setEmail(user?.email ?? "");
-    });
+    fetchStats();
+    supabase.auth.getUser().then(({ data: { user } }) => setEmail(user?.email ?? ""));
   }, []);
+
+  async function fetchStats() {
+    const [c, u, j, cand] = await Promise.all([
+      supabase.from("companies").select("id", { count: "exact", head: true }),
+      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase.from("jobs").select("id", { count: "exact", head: true }),
+      supabase.from("candidates").select("id", { count: "exact", head: true }),
+    ]);
+    setStats({
+      companies: c.count ?? 0,
+      users: u.count ?? 0,
+      jobs: j.count ?? 0,
+      candidates: cand.count ?? 0,
+    });
+  }
 
   async function fetchCompanies() {
     const { data } = await supabase.from("companies").select("id, name").order("name");
@@ -31,19 +64,77 @@ function AdminDashboard() {
     setProfiles(data ?? []);
   }
 
+  function validateCompany(): boolean {
+    const errors: CompanyErrors = {};
+    if (!newCompanyName.trim()) errors.name = "Namn är obligatoriskt";
+    else if (newCompanyName.trim().length < 2) errors.name = "Minst 2 tecken";
+    setCompanyErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  function validateUser(): boolean {
+    const errors: UserErrors = {};
+    if (!newUserEmail.trim()) {
+      errors.email = "E-post är obligatorisk";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newUserEmail)) {
+      errors.email = "Ogiltig e-postadress";
+    }
+    if (!newUserPassword) {
+      errors.password = "Lösenord är obligatoriskt";
+    } else if (newUserPassword.length < 8) {
+      errors.password = "Minst 8 tecken";
+    }
+    setUserErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
   async function handleCreateCompany(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
-    const { error } = await supabase.from("companies").insert({ name: newCompanyName });
+    if (!validateCompany()) return;
+    setSavingCompany(true);
+    const { error } = await supabase.from("companies").insert({ name: newCompanyName.trim() });
     if (error) {
       alert("Fel: " + error.message);
-      setSaving(false);
+      setSavingCompany(false);
       return;
     }
     setNewCompanyName("");
     setShowCompanyForm(false);
-    setSaving(false);
+    setSavingCompany(false);
     fetchCompanies();
+    fetchStats();
+    logActivity("company_created", newCompanyName.trim());
+  }
+
+  async function handleCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validateUser()) return;
+    setSavingUser(true);
+
+    const { data, error } = await supabase.functions.invoke("create-user", {
+      body: {
+        email: newUserEmail.trim(),
+        password: newUserPassword,
+        role: newUserRole,
+        company_id: newUserCompany || null,
+      },
+    });
+
+    if (error || data?.error) {
+      alert("Fel: " + (data?.error ?? error?.message));
+      setSavingUser(false);
+      return;
+    }
+
+    setNewUserEmail("");
+    setNewUserPassword("");
+    setNewUserRole("customer");
+    setNewUserCompany("");
+    setShowUserForm(false);
+    setSavingUser(false);
+    fetchProfiles();
+    fetchStats();
+    logActivity("user_created", newUserEmail.trim());
   }
 
   async function handleUpdateProfile(
@@ -57,16 +148,17 @@ function AdminDashboard() {
     );
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
-  }
-
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         email={email}
-        links={[{ label: "Admin", onClick: () => {}, active: true }]}
-        onLogout={handleLogout}
+        role="admin"
+        links={ADMIN_NAV.map((item) => ({
+          label: item.label,
+          onClick: () => navigate(item.path),
+          active: location.pathname === item.path,
+        }))}
+        onLogout={async () => await supabase.auth.signOut()}
       />
 
       <div className="flex-1 overflow-y-auto bg-violet-50/30">
@@ -75,7 +167,26 @@ function AdminDashboard() {
           <p className="text-sm text-gray-400 mt-0.5">Hantera företag och användare</p>
         </header>
 
-        <main className="max-w-4xl mx-auto px-8 py-8 space-y-10">
+        <main className="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-10">
+
+          {/* Statistik */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Företag",    value: stats.companies, icon: "🏢", color: "bg-violet-100 text-violet-600" },
+              { label: "Användare",  value: stats.users,     icon: "👤", color: "bg-blue-100 text-blue-600" },
+              { label: "Aktiva jobb",value: stats.jobs,      icon: "💼", color: "bg-emerald-100 text-emerald-600" },
+              { label: "Kandidater", value: stats.candidates,icon: "🙋", color: "bg-amber-100 text-amber-600" },
+            ].map((s) => (
+              <div key={s.label} className="bg-white border border-violet-100 rounded-2xl px-5 py-4 shadow-sm">
+                <div className={`w-9 h-9 ${s.color} rounded-xl flex items-center justify-center text-lg mb-3`}>
+                  {s.icon}
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{s.value}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
           {/* Företag */}
           <section>
             <div className="flex items-center justify-between mb-4">
@@ -85,7 +196,7 @@ function AdminDashboard() {
               </div>
               <button
                 type="button"
-                onClick={() => setShowCompanyForm(!showCompanyForm)}
+                onClick={() => { setShowCompanyForm(!showCompanyForm); setCompanyErrors({}); }}
                 className="bg-violet-600 text-white text-sm rounded-xl px-4 py-2 hover:bg-violet-700 cursor-pointer font-medium transition-colors shadow-sm"
               >
                 {showCompanyForm ? "Avbryt" : "+ Skapa företag"}
@@ -95,9 +206,9 @@ function AdminDashboard() {
             {showCompanyForm && (
               <form
                 onSubmit={handleCreateCompany}
-                className="bg-white border border-violet-100 rounded-2xl p-4 mb-4 flex gap-3 items-end shadow-sm"
+                className="bg-white border border-violet-100 rounded-2xl p-4 mb-4 shadow-sm space-y-3"
               >
-                <div className="flex-1">
+                <div>
                   <label htmlFor="company-name" className="block text-sm font-medium text-gray-700 mb-1">
                     Namn *
                   </label>
@@ -105,18 +216,24 @@ function AdminDashboard() {
                     id="company-name"
                     type="text"
                     value={newCompanyName}
-                    onChange={(e) => setNewCompanyName(e.target.value)}
-                    required
+                    onChange={(e) => { setNewCompanyName(e.target.value); setCompanyErrors({}); }}
                     placeholder="t.ex. Acme AB"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 focus:bg-white transition-colors"
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 bg-gray-50 focus:bg-white transition-colors ${
+                      companyErrors.name
+                        ? "border-red-300 focus:ring-red-300"
+                        : "border-gray-200 focus:ring-violet-400"
+                    }`}
                   />
+                  {companyErrors.name && (
+                    <p className="text-xs text-red-500 mt-1">{companyErrors.name}</p>
+                  )}
                 </div>
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={savingCompany}
                   className="bg-violet-600 text-white text-sm rounded-xl px-4 py-2 hover:bg-violet-700 disabled:opacity-50 cursor-pointer font-medium transition-colors shadow-sm"
                 >
-                  {saving ? "Sparar…" : "Spara"}
+                  {savingCompany ? "Sparar…" : "Spara"}
                 </button>
               </form>
             )}
@@ -124,7 +241,7 @@ function AdminDashboard() {
             {companies.length === 0 ? (
               <p className="text-sm text-gray-400 py-4">Inga företag ännu.</p>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {companies.map((c) => (
                   <div
                     key={c.id}
@@ -144,77 +261,175 @@ function AdminDashboard() {
 
           {/* Användare */}
           <section>
-            <div className="mb-4">
-              <h2 className="text-base font-semibold text-gray-900">Användare</h2>
-              <p className="text-sm text-gray-400">{profiles.length} konton</p>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Användare</h2>
+                <p className="text-sm text-gray-400">{profiles.length} konton</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowUserForm(!showUserForm); setUserErrors({}); }}
+                className="bg-violet-600 text-white text-sm rounded-xl px-4 py-2 hover:bg-violet-700 cursor-pointer font-medium transition-colors shadow-sm"
+              >
+                {showUserForm ? "Avbryt" : "+ Skapa användare"}
+              </button>
             </div>
-            <div className="bg-white border border-violet-100 rounded-2xl overflow-hidden shadow-sm">
-              <table className="w-full text-sm">
-                <thead className="bg-violet-50 border-b border-violet-100">
-                  <tr>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide">
-                      Användare
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide">
+
+            {showUserForm && (
+              <form
+                onSubmit={handleCreateUser}
+                className="bg-white border border-violet-100 rounded-2xl p-5 mb-4 shadow-sm space-y-4"
+              >
+                <h3 className="font-semibold text-gray-900 text-sm">Nytt konto</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="user-email" className="block text-sm font-medium text-gray-700 mb-1">
+                      E-post *
+                    </label>
+                    <input
+                      id="user-email"
+                      type="text"
+                      value={newUserEmail}
+                      onChange={(e) => { setNewUserEmail(e.target.value); setUserErrors((p) => ({ ...p, email: undefined })); }}
+                      placeholder="kund@företag.se"
+                      className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 bg-gray-50 focus:bg-white transition-colors ${
+                        userErrors.email
+                          ? "border-red-300 focus:ring-red-300"
+                          : "border-gray-200 focus:ring-violet-400"
+                      }`}
+                    />
+                    {userErrors.email && (
+                      <p className="text-xs text-red-500 mt-1">{userErrors.email}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor="user-password" className="block text-sm font-medium text-gray-700 mb-1">
+                      Lösenord * <span className="text-gray-400 font-normal">(min 8 tecken)</span>
+                    </label>
+                    <input
+                      id="user-password"
+                      type="password"
+                      value={newUserPassword}
+                      onChange={(e) => { setNewUserPassword(e.target.value); setUserErrors((p) => ({ ...p, password: undefined })); }}
+                      placeholder="••••••••"
+                      className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 bg-gray-50 focus:bg-white transition-colors ${
+                        userErrors.password
+                          ? "border-red-300 focus:ring-red-300"
+                          : "border-gray-200 focus:ring-violet-400"
+                      }`}
+                    />
+                    {userErrors.password && (
+                      <p className="text-xs text-red-500 mt-1">{userErrors.password}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label htmlFor="user-role" className="block text-sm font-medium text-gray-700 mb-1">
                       Roll
-                    </th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide">
+                    </label>
+                    <select
+                      id="user-role"
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 cursor-pointer"
+                    >
+                      <option value="customer">customer</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="user-company" className="block text-sm font-medium text-gray-700 mb-1">
                       Företag
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-violet-50">
-                  {profiles.map((p) => (
-                    <tr key={p.id} className="hover:bg-violet-50/50 transition-colors">
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 bg-violet-100 rounded-full flex items-center justify-center shrink-0">
-                            <span className="text-violet-600 text-xs font-semibold">
-                              {(p.email?.[0] ?? "?").toUpperCase()}
-                            </span>
-                          </div>
-                          <span className="text-gray-800 font-medium">{p.email ?? "–"}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <select
-                          aria-label="Roll"
-                          value={p.role}
-                          onChange={(e) => handleUpdateProfile(p.id, "role", e.target.value)}
-                          className="border border-violet-100 rounded-lg px-2.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 cursor-pointer"
-                        >
-                          <option value="customer">customer</option>
-                          <option value="admin">admin</option>
-                        </select>
-                      </td>
-                      <td className="px-5 py-3">
-                        <select
-                          aria-label="Företag"
-                          value={p.company_id ?? ""}
-                          onChange={(e) =>
-                            handleUpdateProfile(p.id, "company_id", e.target.value || null)
-                          }
-                          className="border border-violet-100 rounded-lg px-2.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 cursor-pointer"
-                        >
-                          <option value="">– Inget –</option>
-                          {companies.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                  {profiles.length === 0 && (
+                    </label>
+                    <select
+                      id="user-company"
+                      value={newUserCompany}
+                      onChange={(e) => setNewUserCompany(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 cursor-pointer"
+                    >
+                      <option value="">– Inget –</option>
+                      {companies.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={savingUser}
+                  className="bg-violet-600 text-white text-sm rounded-xl px-5 py-2 hover:bg-violet-700 disabled:opacity-50 cursor-pointer font-medium transition-colors shadow-sm"
+                >
+                  {savingUser ? "Skapar…" : "Skapa konto"}
+                </button>
+              </form>
+            )}
+
+            <div className="bg-white border border-violet-100 rounded-2xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-violet-50 border-b border-violet-100">
                     <tr>
-                      <td colSpan={3} className="px-5 py-4 text-sm text-gray-400">
-                        Inga användare.
-                      </td>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide">
+                        Användare
+                      </th>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide">
+                        Roll
+                      </th>
+                      <th className="text-left px-5 py-3 text-xs font-semibold text-violet-500 uppercase tracking-wide">
+                        Företag
+                      </th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-violet-50">
+                    {profiles.map((p) => (
+                      <tr key={p.id} className="hover:bg-violet-50/50 transition-colors">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 bg-violet-100 rounded-full flex items-center justify-center shrink-0">
+                              <span className="text-violet-600 text-xs font-semibold">
+                                {(p.email?.[0] ?? "?").toUpperCase()}
+                              </span>
+                            </div>
+                            <span className="text-gray-800 font-medium truncate max-w-50">{p.email ?? "–"}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3">
+                          <select
+                            aria-label="Roll"
+                            value={p.role}
+                            onChange={(e) => handleUpdateProfile(p.id, "role", e.target.value)}
+                            className="border border-violet-100 rounded-lg px-2.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 cursor-pointer"
+                          >
+                            <option value="customer">customer</option>
+                            <option value="admin">admin</option>
+                          </select>
+                        </td>
+                        <td className="px-5 py-3">
+                          <select
+                            aria-label="Företag"
+                            value={p.company_id ?? ""}
+                            onChange={(e) =>
+                              handleUpdateProfile(p.id, "company_id", e.target.value || null)
+                            }
+                            className="border border-violet-100 rounded-lg px-2.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 cursor-pointer"
+                          >
+                            <option value="">– Inget –</option>
+                            {companies.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                    {profiles.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="px-5 py-4 text-sm text-gray-400">
+                          Inga användare.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
         </main>
