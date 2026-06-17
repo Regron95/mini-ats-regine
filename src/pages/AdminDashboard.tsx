@@ -175,23 +175,28 @@ function AdminDashboard() {
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "Företag",     value: stats.companies,  icon: "🏢", color: "bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400" },
-              { label: "Användare",   value: stats.users,      icon: "👤", color: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" },
-              { label: "Aktiva jobb", value: stats.jobs,       icon: "💼", color: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400" },
-              { label: "Kandidater",  value: stats.candidates, icon: "🙋", color: "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400" },
+              { label: "Företag",     value: stats.companies,  icon: "🏢", color: "bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400", onClick: () => document.getElementById("companies-section")?.scrollIntoView({ behavior: "smooth" }) },
+              { label: "Användare",   value: stats.users,      icon: "👤", color: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",           onClick: () => navigate("/team") },
+              { label: "Aktiva jobb", value: stats.jobs,       icon: "💼", color: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400", onClick: () => navigate("/all-jobs") },
+              { label: "Kandidater",  value: stats.candidates, icon: "🙋", color: "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400",        onClick: () => navigate("/candidates") },
             ].map((s) => (
-              <div key={s.label} className="bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-2xl px-5 py-4 shadow-sm">
+              <button
+                key={s.label}
+                type="button"
+                onClick={s.onClick}
+                className="bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-2xl px-5 py-4 shadow-sm text-left hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-md transition-all cursor-pointer"
+              >
                 <div className={`w-9 h-9 ${s.color} rounded-xl flex items-center justify-center text-lg mb-3`}>
                   {s.icon}
                 </div>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">{s.value}</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{s.label}</p>
-              </div>
+              </button>
             ))}
           </div>
 
           {/* Företag */}
-          <section>
+          <section id="companies-section">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white">Företag</h2>

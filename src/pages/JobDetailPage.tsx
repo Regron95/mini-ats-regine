@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import * as pdfjsLib from "pdfjs-dist";
+import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { supabase } from "../lib/supabase";
 import Sidebar from "../components/Sidebar";
 import { logActivity } from "../lib/activity";
 import { ADMIN_NAV } from "../lib/adminNav";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 type CandidateStatus = "applied" | "screening" | "interview" | "offer" | "rejected";
 
@@ -76,6 +80,7 @@ function JobDetailPage() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<CandidateErrors>({});
   const [newCvFile, setNewCvFile] = useState<File | null>(null);
+  const [cvExtractStatus, setCvExtractStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [email, setEmail] = useState("");
   const [assessments, setAssessments] = useState<Record<string, Assessment>>({});
   const [assessing, setAssessing] = useState<Record<string, boolean>>({});
@@ -137,6 +142,47 @@ function JobDetailPage() {
       .eq("id", candidateId);
   }
 
+  async function extractTextFromFile(file: File): Promise<string> {
+    if (file.name.endsWith(".txt") || file.type === "text/plain") {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve((e.target?.result as string) ?? "");
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+    }
+    if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pageTexts = await Promise.all(
+        Array.from({ length: pdf.numPages }, async (_, i) => {
+          const page = await pdf.getPage(i + 1);
+          const content = await page.getTextContent();
+          return content.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join(" ");
+        })
+      );
+      return pageTexts.join("\n\n").trim();
+    }
+    throw new Error("Filformat stöds inte");
+  }
+
+  async function handleCvFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    setNewCvFile(file);
+    setNewCvText("");
+    if (!file) { setCvExtractStatus("idle"); return; }
+    setCvExtractStatus("loading");
+    try {
+      const text = await extractTextFromFile(file);
+      setNewCvText(text);
+      setCvExtractStatus(text.length > 0 ? "success" : "error");
+    } catch {
+      setCvExtractStatus("error");
+    }
+  }
+
   function validate(): boolean {
     const e: CandidateErrors = {};
     if (!newName.trim()) {
@@ -189,7 +235,7 @@ function JobDetailPage() {
       return;
     }
 
-    setNewName(""); setNewEmail(""); setNewLinkedin(""); setNewCvText(""); setNewCvFile(null);
+    setNewName(""); setNewEmail(""); setNewLinkedin(""); setNewCvText(""); setNewCvFile(null); setCvExtractStatus("idle");
     setShowForm(false);
     setSaving(false);
     fetchCandidates();
@@ -347,42 +393,49 @@ function JobDetailPage() {
               </div>
               <div>
                 <label htmlFor="cand-cv-file" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                  CV-fil <span className="text-gray-300 dark:text-gray-600 font-normal">(PDF, Word)</span>
+                  CV <span className="text-gray-300 dark:text-gray-600 font-normal">(PDF eller TXT — text läses ut automatiskt för AI-bedömning)</span>
                 </label>
                 <label
                   htmlFor="cand-cv-file"
-                  className={`flex items-center gap-2 w-full border rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-violet-400 dark:hover:border-violet-500 ${newCvFile ? "text-gray-800 dark:text-white" : "text-gray-400 dark:text-gray-500"}`}
+                  className="flex items-center gap-2 w-full border rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-violet-400 dark:hover:border-violet-500"
                 >
-                  <span className="shrink-0">📄</span>
-                  <span className="truncate">{newCvFile ? newCvFile.name : "Välj fil…"}</span>
+                  <span className="shrink-0 text-base">📄</span>
+                  <span className={`truncate flex-1 ${newCvFile ? "text-gray-800 dark:text-white" : "text-gray-400 dark:text-gray-500"}`}>
+                    {newCvFile ? newCvFile.name : "Välj CV-fil…"}
+                  </span>
+                  {cvExtractStatus === "loading" && (
+                    <span className="text-xs text-gray-400 shrink-0">Läser…</span>
+                  )}
+                  {cvExtractStatus === "success" && (
+                    <span className="text-xs text-emerald-500 shrink-0">✓ Text utläst</span>
+                  )}
+                  {cvExtractStatus === "error" && (
+                    <span className="text-xs text-amber-500 shrink-0">Kunde ej läsa text</span>
+                  )}
                   {newCvFile && (
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); setNewCvFile(null); }}
-                      className="ml-auto text-gray-300 hover:text-rose-400 transition-colors shrink-0"
+                      onClick={(e) => { e.preventDefault(); setNewCvFile(null); setNewCvText(""); setCvExtractStatus("idle"); }}
+                      className="text-gray-300 hover:text-rose-400 transition-colors shrink-0 ml-1"
                     >×</button>
                   )}
                 </label>
                 <input
                   id="cand-cv-file"
                   type="file"
-                  accept=".pdf,.doc,.docx"
+                  accept=".pdf,.txt"
                   className="sr-only"
-                  onChange={(e) => setNewCvFile(e.target.files?.[0] ?? null)}
+                  onChange={handleCvFileChange}
                 />
-              </div>
-              <div>
-                <label htmlFor="cand-cv" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                  CV-text <span className="text-gray-300 dark:text-gray-600 font-normal">(för AI-bedömning)</span>
-                </label>
-                <textarea
-                  id="cand-cv"
-                  value={newCvText}
-                  onChange={(e) => setNewCvText(e.target.value)}
-                  rows={3}
-                  placeholder="Klistra in CV-text här…"
-                  className="w-full border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 transition-colors"
-                />
+                {cvExtractStatus === "error" && (
+                  <textarea
+                    value={newCvText}
+                    onChange={(e) => setNewCvText(e.target.value)}
+                    placeholder="Kunde inte läsa filen automatiskt — klistra in CV-text manuellt…"
+                    rows={3}
+                    className="mt-2 w-full border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 dark:bg-gray-700 dark:text-white transition-colors"
+                  />
+                )}
               </div>
               <button
                 type="submit"
