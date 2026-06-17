@@ -35,14 +35,36 @@ function CustomerOverviewPage() {
       setCompany(companyData?.name ?? "");
     }
 
-    const [activeRes, candRes, recentRes] = await Promise.all([
-      supabase.from("jobs").select("id", { count: "exact", head: true }).eq("is_open", true),
-      supabase.from("candidates").select("id", { count: "exact", head: true }),
-      supabase.from("jobs").select("id, title, is_open, created_at").order("created_at", { ascending: false }).limit(4),
-    ]);
+    if (role === "admin") {
+      const [activeRes, candRes, recentRes] = await Promise.all([
+        supabase.from("jobs").select("id", { count: "exact", head: true }).eq("is_open", true),
+        supabase.from("candidates").select("id", { count: "exact", head: true }),
+        supabase.from("jobs").select("id, title, is_open, created_at").order("created_at", { ascending: false }).limit(4),
+      ]);
+      setStats({ activeJobs: activeRes.count ?? 0, totalCandidates: candRes.count ?? 0 });
+      setRecentJobs(recentRes.data ?? []);
+    } else if (profile?.company_id) {
+      const { data: jobData } = await supabase
+        .from("jobs")
+        .select("id, title, is_open, created_at")
+        .eq("company_id", profile.company_id)
+        .order("created_at", { ascending: false });
+      const jobList = jobData ?? [];
+      const jobIds = jobList.map((j) => j.id);
+      const activeJobs = jobList.filter((j) => j.is_open !== false).length;
 
-    setStats({ activeJobs: activeRes.count ?? 0, totalCandidates: candRes.count ?? 0 });
-    setRecentJobs(recentRes.data ?? []);
+      let totalCandidates = 0;
+      if (jobIds.length > 0) {
+        const { count } = await supabase
+          .from("candidates")
+          .select("id", { count: "exact", head: true })
+          .in("job_id", jobIds);
+        totalCandidates = count ?? 0;
+      }
+
+      setStats({ activeJobs, totalCandidates });
+      setRecentJobs(jobList.slice(0, 4));
+    }
     setLoading(false);
   }
 
@@ -62,8 +84,8 @@ function CustomerOverviewPage() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
-        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-6 py-5 sticky top-0 z-10">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
+        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-6 py-5 sticky top-14 lg:top-0 z-10">
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Översikt</h1>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
             {company ? `${company} · ` : ""}{email}

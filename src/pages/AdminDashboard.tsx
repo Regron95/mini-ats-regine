@@ -85,6 +85,14 @@ function AdminDashboard() {
     return Object.keys(errors).length === 0;
   }
 
+  async function handleDeleteCompany(companyId: string, companyName: string) {
+    if (!confirm(`Ta bort företaget "${companyName}"? Alla jobb och kandidater kopplade till företaget tas också bort.`)) return;
+    const { error } = await supabase.from("companies").delete().eq("id", companyId);
+    if (error) { alert("Fel: " + error.message); return; }
+    setCompanies((prev) => prev.filter((c) => c.id !== companyId));
+    fetchStats();
+  }
+
   async function handleCreateCompany(e: React.FormEvent) {
     e.preventDefault();
     if (!validateCompany()) return;
@@ -165,8 +173,8 @@ function AdminDashboard() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
-        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-8 py-5 sticky top-0 z-10">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
+        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-8 py-5 sticky top-14 lg:top-0 z-10">
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Admin</h1>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">Hantera företag och användare</p>
         </header>
@@ -245,13 +253,20 @@ function AdminDashboard() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {companies.map((c) => (
-                  <div key={c.id} className="bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm">
+                  <div key={c.id} className="group bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-md transition-all cursor-pointer" onClick={() => navigate(`/companies/${c.id}`)}>
                     <div className="w-8 h-8 bg-violet-100 dark:bg-violet-900/30 rounded-lg flex items-center justify-center shrink-0">
                       <span className="text-violet-600 dark:text-violet-400 text-xs font-bold">
                         {c.name[0]?.toUpperCase()}
                       </span>
                     </div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{c.name}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white flex-1 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">{c.name}</p>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteCompany(c.id, c.name); }}
+                      className="opacity-0 group-hover:opacity-100 text-xs text-gray-300 dark:text-gray-600 hover:text-rose-500 dark:hover:text-rose-400 transition-all cursor-pointer px-2 py-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                    >
+                      Ta bort
+                    </button>
                   </div>
                 ))}
               </div>

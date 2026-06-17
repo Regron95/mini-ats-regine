@@ -89,8 +89,8 @@ function AllCandidatesPage() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
-        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-8 py-5 sticky top-0 z-10">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
+        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-8 py-5 sticky top-14 lg:top-0 z-10">
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Alla kandidater</h1>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
             {loading ? "…" : `${candidates.length} kandidater totalt`}

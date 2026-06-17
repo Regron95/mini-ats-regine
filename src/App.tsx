@@ -13,6 +13,7 @@ import ActivityLogPage from "./pages/ActivityLogPage";
 import TeamPage from "./pages/TeamPage";
 import AllJobsPage from "./pages/AllJobsPage";
 import AllCandidatesPage from "./pages/AllCandidatesPage";
+import CompanyDetailPage from "./pages/CompanyDetailPage";
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -47,6 +48,7 @@ function App() {
           <Route path="/team" element={session ? <TeamPage /> : <Navigate to="/" />} />
           <Route path="/all-jobs" element={session ? <AllJobsPage /> : <Navigate to="/" />} />
           <Route path="/candidates" element={session ? <AllCandidatesPage /> : <Navigate to="/" />} />
+          <Route path="/companies/:id" element={session ? <CompanyDetailPage /> : <Navigate to="/" />} />
         </Routes>
       </BrowserRouter>
     </ThemeProvider>

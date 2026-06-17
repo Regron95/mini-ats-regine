@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 
 type SidebarLink = {
@@ -16,16 +17,30 @@ type SidebarProps = {
 
 function Sidebar({ email, company, role, links, onLogout }: SidebarProps) {
   const { theme, toggle } = useTheme();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  return (
-    <aside className="w-56 shrink-0 bg-white dark:bg-gray-900 border-r border-violet-100 dark:border-gray-800 flex flex-col">
-      <div className="px-4 py-5 border-b border-violet-100 dark:border-gray-800">
+  function handleLink(link: SidebarLink) {
+    link.onClick();
+    setMobileOpen(false);
+  }
+
+  const content = (
+    <>
+      <div className="px-4 py-5 border-b border-violet-100 dark:border-gray-800 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 bg-violet-500 rounded-lg flex items-center justify-center shrink-0 shadow-sm">
             <span className="text-white text-xs font-bold">A</span>
           </div>
           <span className="text-gray-800 dark:text-white font-semibold text-sm tracking-tight">Mini ATS</span>
         </div>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="lg:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer text-xl leading-none"
+          aria-label="Stäng meny"
+        >
+          ✕
+        </button>
       </div>
 
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
@@ -33,8 +48,8 @@ function Sidebar({ email, company, role, links, onLogout }: SidebarProps) {
           <button
             key={link.label}
             type="button"
-            onClick={link.onClick}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+            onClick={() => handleLink(link)}
+            className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors cursor-pointer ${
               link.active
                 ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 font-medium"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -77,7 +92,53 @@ function Sidebar({ email, company, role, links, onLogout }: SidebarProps) {
           </button>
         </div>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile top bar */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-30 h-14 bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 flex items-center justify-between px-4 shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-violet-500 rounded-lg flex items-center justify-center shadow-sm">
+            <span className="text-white text-xs font-bold">A</span>
+          </div>
+          <span className="text-gray-800 dark:text-white font-semibold text-sm">Mini ATS</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+          aria-label="Öppna meny"
+        >
+          <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Sidebar drawer */}
+      <aside
+        className={`
+          fixed lg:static top-0 left-0 h-full z-50
+          w-64 lg:w-56 shrink-0
+          bg-white dark:bg-gray-900 border-r border-violet-100 dark:border-gray-800
+          flex flex-col
+          transition-transform duration-200 ease-in-out
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+        `}
+      >
+        {content}
+      </aside>
+    </>
   );
 }
 

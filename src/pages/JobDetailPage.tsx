@@ -88,6 +88,12 @@ function JobDetailPage() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<CandidateStatus | null>(null);
+  const [importQuery, setImportQuery] = useState("");
+  const [importSuggestions, setImportSuggestions] = useState<Candidate[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState<Candidate[]>([]);
+  const [showSearchDrop, setShowSearchDrop] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchJob();
@@ -140,6 +146,71 @@ function JobDetailPage() {
       .from("candidates")
       .update({ notes: value.trim() || null })
       .eq("id", candidateId);
+  }
+
+  async function searchExistingCandidates(query: string) {
+    setImportQuery(query);
+    if (!query.trim()) { setImportSuggestions([]); setShowSuggestions(false); return; }
+    const { data } = await supabase
+      .from("candidates")
+      .select("id, name, email, linkedin_url, cv_text, cv_url, status, notes")
+      .ilike("name", `%${query}%`)
+      .limit(6);
+    setImportSuggestions((data ?? []) as Candidate[]);
+    setShowSuggestions(true);
+  }
+
+  async function handleSearchChange(value: string) {
+    setSearch(value);
+    if (!value.trim()) { setSearchSuggestions([]); setShowSearchDrop(false); return; }
+    const { data } = await supabase
+      .from("candidates")
+      .select("id, name, email, linkedin_url, cv_text, cv_url, status, notes")
+      .ilike("name", `%${value}%`)
+      .not("job_id", "eq", id)
+      .limit(5);
+    const existing = candidates.map((c) => c.id);
+    const filtered = (data ?? []).filter((c) => !existing.includes(c.id)) as Candidate[];
+    setSearchSuggestions(filtered);
+    setShowSearchDrop(filtered.length > 0);
+  }
+
+  async function handleDeleteCandidate(candidateId: string, name: string) {
+    if (!confirm(`Ta bort "${name}"? Detta kan inte ångras.`)) return;
+    const { error } = await supabase.from("candidates").delete().eq("id", candidateId);
+    if (error) { alert("Fel: " + error.message); return; }
+    setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+  }
+
+  async function addCandidateFromSearch(c: Candidate) {
+    setAddingId(c.id);
+    const { error } = await supabase.from("candidates").insert({
+      job_id: id,
+      name: c.name,
+      email: c.email,
+      linkedin_url: c.linkedin_url,
+      cv_text: c.cv_text,
+      cv_url: c.cv_url,
+      status: "applied",
+    });
+    if (error) { alert("Fel: " + error.message); setAddingId(null); return; }
+    setAddingId(null);
+    setSearch("");
+    setSearchSuggestions([]);
+    setShowSearchDrop(false);
+    fetchCandidates();
+    logActivity("candidate_added", c.name, { job_title: jobTitle });
+  }
+
+  function prefillFromExisting(c: Candidate) {
+    setNewName(c.name);
+    setNewEmail(c.email ?? "");
+    setNewLinkedin(c.linkedin_url ?? "");
+    setNewCvText(c.cv_text ?? "");
+    setImportQuery("");
+    setImportSuggestions([]);
+    setShowSuggestions(false);
+    setErrors({});
   }
 
   async function extractTextFromFile(file: File): Promise<string> {
@@ -235,7 +306,7 @@ function JobDetailPage() {
       return;
     }
 
-    setNewName(""); setNewEmail(""); setNewLinkedin(""); setNewCvText(""); setNewCvFile(null); setCvExtractStatus("idle");
+    setNewName(""); setNewEmail(""); setNewLinkedin(""); setNewCvText(""); setNewCvFile(null); setCvExtractStatus("idle"); setImportQuery(""); setImportSuggestions([]);
     setShowForm(false);
     setSaving(false);
     fetchCandidates();
@@ -299,7 +370,7 @@ function JobDetailPage() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-hidden flex flex-col bg-violet-50/30 dark:bg-gray-950">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-hidden flex flex-col bg-violet-50/30 dark:bg-gray-950">
         {/* Header */}
         <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-4 sm:px-6 py-4 shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -331,12 +402,40 @@ function JobDetailPage() {
               <div className="relative flex-1 sm:flex-none">
                 <input
                   type="text"
-                  placeholder="Sök kandidat…"
+                  placeholder="Sök eller lägg till kandidat…"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="border border-gray-200 dark:border-gray-700 rounded-xl pl-8 pr-3 py-2 text-sm w-full sm:w-48 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 dark:bg-gray-800 dark:text-white focus:bg-white dark:focus:bg-gray-700 transition-colors"
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  onFocus={() => searchSuggestions.length > 0 && setShowSearchDrop(true)}
+                  onBlur={() => setTimeout(() => setShowSearchDrop(false), 150)}
+                  className="border border-gray-200 dark:border-gray-700 rounded-xl pl-8 pr-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 dark:bg-gray-800 dark:text-white focus:bg-white dark:focus:bg-gray-700 transition-colors"
                 />
                 <span className="absolute left-2.5 top-2.5 text-gray-300 text-xs">🔍</span>
+                {showSearchDrop && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden min-w-72">
+                    <p className="px-3 py-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide border-b border-violet-50 dark:border-gray-700">
+                      Lägg till befintlig kandidat
+                    </p>
+                    {searchSuggestions.map((c) => (
+                      <div key={c.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-violet-50 dark:hover:bg-gray-700 border-b border-violet-50 dark:border-gray-700 last:border-0">
+                        <div className={`w-7 h-7 rounded-full ${getAvatarColor(c.name)} flex items-center justify-center shrink-0`}>
+                          <span className="text-white text-xs font-bold">{getInitials(c.name)}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{c.name}</p>
+                          {c.email && <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{c.email}</p>}
+                        </div>
+                        <button
+                          type="button"
+                          onMouseDown={() => addCandidateFromSearch(c)}
+                          disabled={addingId === c.id}
+                          className="text-xs font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40 px-2.5 py-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                        >
+                          {addingId === c.id ? "…" : "+ Lägg till"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -353,6 +452,54 @@ function JobDetailPage() {
         {showForm && (
           <div className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-4 sm:px-6 py-4 shrink-0 overflow-y-auto max-h-80">
             <form onSubmit={handleAddCandidate} className="space-y-3">
+              {/* Search existing candidates */}
+              <div className="relative">
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                  Sök befintlig kandidat <span className="text-gray-300 dark:text-gray-600 font-normal">(fyll i formuläret automatiskt)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={importQuery}
+                    onChange={(e) => searchExistingCandidates(e.target.value)}
+                    onFocus={() => importQuery && setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                    placeholder="Skriv kandidatens namn…"
+                    className="w-full border border-gray-200 dark:border-gray-600 rounded-xl pl-8 pr-4 py-2 text-sm bg-gray-50 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-400 focus:bg-white dark:focus:bg-gray-600 transition-colors"
+                  />
+                  <span className="absolute left-2.5 top-2.5 text-gray-300 text-xs">🔍</span>
+                </div>
+                {showSuggestions && importSuggestions.length > 0 && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+                    {importSuggestions.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={() => prefillFromExisting(c)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-violet-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 border-b border-violet-50 dark:border-gray-700 last:border-0"
+                      >
+                        <div className={`w-7 h-7 rounded-full ${getAvatarColor(c.name)} flex items-center justify-center shrink-0`}>
+                          <span className="text-white text-xs font-bold">{getInitials(c.name)}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{c.name}</p>
+                          {c.email && <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{c.email}</p>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showSuggestions && importQuery && importSuggestions.length === 0 && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-violet-100 dark:border-gray-700 rounded-xl shadow-lg px-4 py-3 text-sm text-gray-400 dark:text-gray-500">
+                    Ingen kandidat hittades
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-violet-50 dark:border-gray-700 pt-3">
+                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 mb-3">— eller fyll i manuellt —</p>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label htmlFor="cand-name" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Namn *</label>
@@ -515,7 +662,7 @@ function JobDetailPage() {
                             draggable
                             onDragStart={() => setDraggingId(c.id)}
                             onDragEnd={() => { setDraggingId(null); setDragOverCol(null); }}
-                            className={`bg-white dark:bg-gray-700 rounded-xl p-3 border border-violet-100 dark:border-gray-600 shadow-sm cursor-grab active:cursor-grabbing transition-opacity ${draggingId === c.id ? "opacity-40" : "opacity-100"}`}
+                            className={`group bg-white dark:bg-gray-700 rounded-xl p-3 border border-violet-100 dark:border-gray-600 shadow-sm cursor-grab active:cursor-grabbing transition-opacity ${draggingId === c.id ? "opacity-40" : "opacity-100"}`}
                           >
                             <div className="flex items-start gap-2.5 mb-2">
                               <div className={`w-8 h-8 rounded-full ${getAvatarColor(c.name)} flex items-center justify-center shrink-0`}>
@@ -525,6 +672,14 @@ function JobDetailPage() {
                                 <p className="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{c.name}</p>
                                 {c.email && <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{c.email}</p>}
                               </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCandidate(c.id, c.name)}
+                                className="opacity-0 group-hover:opacity-100 text-gray-300 dark:text-gray-600 hover:text-rose-500 dark:hover:text-rose-400 transition-all cursor-pointer shrink-0 p-0.5 rounded"
+                                aria-label={`Ta bort ${c.name}`}
+                              >
+                                ✕
+                              </button>
                             </div>
 
                             <div className="flex items-center gap-2 mb-2 flex-wrap">

@@ -31,6 +31,7 @@ function CustomerDashboard() {
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
   const [companyId, setCompanyId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<"admin" | "customer">("customer");
   const navigate = useNavigate();
   const location = useLocation();
@@ -43,23 +44,38 @@ function CustomerDashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setEmail(user.email ?? "");
+    setUserId(user.id);
 
     const { data: profile } = await supabase.from("profiles").select("role, company_id").eq("id", user.id).single();
     const role = (profile?.role as "admin" | "customer") ?? "customer";
     setUserRole(role);
-    setCompanyId(profile?.company_id ?? null);
+    const cId = profile?.company_id ?? null;
+    setCompanyId(cId);
 
-    if (profile?.company_id) {
-      const { data: companyData } = await supabase.from("companies").select("name").eq("id", profile.company_id).single();
+    if (cId) {
+      const { data: companyData } = await supabase.from("companies").select("name").eq("id", cId).single();
       setCompany(companyData?.name ?? "");
     }
 
-    await fetchJobs();
+    await fetchJobs(role, cId);
   }
 
-  async function fetchJobs() {
+  async function fetchJobs(roleArg?: "admin" | "customer", cIdArg?: string | null) {
+    const role = roleArg ?? userRole;
+    const cId = cIdArg !== undefined ? cIdArg : companyId;
+
+    let jobsQuery = supabase
+      .from("jobs")
+      .select("id, title, description, created_at, is_open")
+      .order("is_open", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (role === "customer" && cId) {
+      jobsQuery = jobsQuery.eq("company_id", cId);
+    }
+
     const [jobsRes, candRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, description, created_at, is_open").order("is_open", { ascending: false }).order("created_at", { ascending: false }),
+      jobsQuery,
       supabase.from("candidates").select("job_id"),
     ]);
 
@@ -94,6 +110,7 @@ function CustomerDashboard() {
       title: title.trim(),
       description: description.trim() || null,
       company_id: companyId,
+      created_by: userId,
     });
 
     if (error) {
@@ -109,6 +126,12 @@ function CustomerDashboard() {
     setSaving(false);
     await fetchJobs();
     logActivity("job_created", createdTitle);
+  }
+
+  async function handleToggleJob(jobId: string, currentIsOpen: boolean) {
+    const { error } = await supabase.from("jobs").update({ is_open: !currentIsOpen }).eq("id", jobId);
+    if (error) { alert("Fel: " + error.message); return; }
+    setJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, is_open: !currentIsOpen } : j));
   }
 
   async function handleDeleteJob(jobId: string, jobTitle: string) {
@@ -149,8 +172,8 @@ function CustomerDashboard() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
-        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-4 sm:px-6 py-5 flex items-center justify-between sticky top-0 z-10">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
+        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-4 sm:px-6 py-5 flex items-center justify-between sticky top-14 lg:top-0 z-10">
           <div>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Mina jobb</h1>
             {!loading && (
@@ -281,13 +304,18 @@ function CustomerDashboard() {
                   >
                     {/* Status badge */}
                     <div className="flex items-center justify-between mb-3">
-                      <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                        isOpen
-                          ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
-                          : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                      }`}>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleJob(job.id, isOpen)}
+                        title={isOpen ? "Klikk for å stenge" : "Klikk for å åpne"}
+                        className={`text-xs font-semibold px-2.5 py-0.5 rounded-full cursor-pointer transition-colors ${
+                          isOpen
+                            ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-800/50"
+                            : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
+                        }`}
+                      >
                         {isOpen ? "● Öppen" : "○ Stängd"}
-                      </span>
+                      </button>
                       <span className="text-xs text-gray-300 dark:text-gray-600">
                         {new Date(job.created_at).toLocaleDateString("sv-SE")}
                       </span>

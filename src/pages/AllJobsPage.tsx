@@ -10,13 +10,17 @@ type Job = {
   description: string | null;
   created_at: string;
   company_id: string;
+  created_by: string | null;
+  is_open: boolean;
 };
 
 type Company = { id: string; name: string };
+type CreatorMap = Record<string, string>;
 
 function AllJobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [creators, setCreators] = useState<CreatorMap>({});
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
@@ -29,12 +33,27 @@ function AllJobsPage() {
 
   async function fetchData() {
     const [j, c] = await Promise.all([
-      supabase.from("jobs").select("id, title, description, created_at, company_id").order("created_at", { ascending: false }),
+      supabase.from("jobs").select("id, title, description, created_at, company_id, created_by, is_open").order("created_at", { ascending: false }),
       supabase.from("companies").select("id, name").order("name"),
     ]);
-    setJobs(j.data ?? []);
+    const jobList = j.data ?? [];
+    setJobs(jobList);
     setCompanies(c.data ?? []);
+
+    const creatorIds = [...new Set(jobList.map((j) => j.created_by).filter(Boolean))] as string[];
+    if (creatorIds.length > 0) {
+      const { data: profiles } = await supabase.from("profiles").select("id, email").in("id", creatorIds);
+      const map: CreatorMap = {};
+      profiles?.forEach((p) => { if (p.email) map[p.id] = p.email; });
+      setCreators(map);
+    }
     setLoading(false);
+  }
+
+  async function handleToggleJob(jobId: string, currentIsOpen: boolean) {
+    const { error } = await supabase.from("jobs").update({ is_open: !currentIsOpen }).eq("id", jobId);
+    if (error) { alert("Fel: " + error.message); return; }
+    setJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, is_open: !currentIsOpen } : j));
   }
 
   async function handleDeleteJob(jobId: string, jobTitle: string) {
@@ -64,8 +83,8 @@ function AllJobsPage() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
-        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-8 py-5 sticky top-0 z-10">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
+        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-8 py-5 sticky top-14 lg:top-0 z-10">
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Jobbgrupper</h1>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
             {loading ? "…" : `${jobs.length} jobb fördelade på ${companies.length} företag`}
@@ -114,13 +133,32 @@ function AllJobsPage() {
                         >
                           <p className="font-semibold text-gray-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">{job.title}</p>
                           {job.description && (
-                            <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5 truncate">{job.description}</p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{job.description}</p>
                           )}
                         </button>
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-xs text-gray-300 dark:text-gray-600 hidden sm:block">
-                            {new Date(job.created_at).toLocaleDateString("sv-SE")}
-                          </span>
+                          <div className="text-right hidden sm:block">
+                            <p className="text-xs text-gray-300 dark:text-gray-600">
+                              {new Date(job.created_at).toLocaleDateString("sv-SE")}
+                            </p>
+                            {job.created_by && creators[job.created_by] && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500">
+                                {creators[job.created_by]}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleJob(job.id, job.is_open !== false)}
+                            title={job.is_open !== false ? "Klikk for å stenge" : "Klikk for å åpne"}
+                            className={`text-xs font-semibold px-2 py-0.5 rounded-full cursor-pointer transition-colors hidden sm:block ${
+                              job.is_open !== false
+                                ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200"
+                                : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200"
+                            }`}
+                          >
+                            {job.is_open !== false ? "Öppen" : "Stängd"}
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteJob(job.id, job.title)}
@@ -151,13 +189,37 @@ function AllJobsPage() {
                         >
                           <p className="font-semibold text-gray-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">{job.title}</p>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteJob(job.id, job.title)}
-                          className="text-xs text-gray-300 dark:text-gray-600 hover:text-rose-500 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 px-2 py-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20"
-                        >
-                          Ta bort
-                        </button>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="text-right hidden sm:block">
+                            <p className="text-xs text-gray-300 dark:text-gray-600">
+                              {new Date(job.created_at).toLocaleDateString("sv-SE")}
+                            </p>
+                            {job.created_by && creators[job.created_by] && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500">
+                                {creators[job.created_by]}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleJob(job.id, job.is_open !== false)}
+                            title={job.is_open !== false ? "Klikk for å stenge" : "Klikk for å åpne"}
+                            className={`text-xs font-semibold px-2 py-0.5 rounded-full cursor-pointer transition-colors hidden sm:block ${
+                              job.is_open !== false
+                                ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200"
+                                : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200"
+                            }`}
+                          >
+                            {job.is_open !== false ? "Öppen" : "Stängd"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteJob(job.id, job.title)}
+                            className="text-xs text-gray-300 dark:text-gray-600 hover:text-rose-500 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 px-2 py-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                          >
+                            Ta bort
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

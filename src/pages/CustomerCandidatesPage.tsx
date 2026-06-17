@@ -61,11 +61,26 @@ function CustomerCandidatesPage() {
       setCompany(companyData?.name ?? "");
     }
 
-    const { data } = await supabase
+    let candidatesQuery = supabase
       .from("candidates")
       .select("id, name, email, linkedin_url, status, job_id, cv_text, cv_url, notes, created_at, jobs(title)")
       .order("created_at", { ascending: false });
 
+    if (role === "customer" && profile?.company_id) {
+      const { data: jobData } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("company_id", profile.company_id);
+      const jobIds = jobData?.map((j) => j.id) ?? [];
+      if (jobIds.length === 0) {
+        setCandidates([]);
+        setLoading(false);
+        return;
+      }
+      candidatesQuery = candidatesQuery.in("job_id", jobIds);
+    }
+
+    const { data } = await candidatesQuery;
     setCandidates((data as CandidateRow[]) ?? []);
     setLoading(false);
   }
@@ -103,8 +118,8 @@ function CustomerCandidatesPage() {
         onLogout={async () => await supabase.auth.signOut()}
       />
 
-      <div className="flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
-        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-6 py-5 sticky top-0 z-10">
+      <div className="pt-14 lg:pt-0 flex-1 overflow-y-auto bg-violet-50/30 dark:bg-gray-950">
+        <header className="bg-white dark:bg-gray-900 border-b border-violet-100 dark:border-gray-800 px-6 py-5 sticky top-14 lg:top-0 z-10">
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Mina kandidater</h1>
           <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
             {loading ? "…" : `${candidates.length} kandidater totalt`}
