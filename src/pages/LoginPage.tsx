@@ -41,7 +41,7 @@ function LoginPage() {
       .eq("id", data.user.id)
       .single();
 
-    navigate(profile?.role === "admin" ? "/admin" : "/dashboard");
+    navigate(profile?.role === "admin" ? "/admin" : "/overview");
     setLoading(false);
   }
 
@@ -112,7 +112,7 @@ function LoginPage() {
       </div>
 
       {/* Höger — inloggning */}
-      <div className="flex-1 bg-white flex items-center justify-center p-8">
+      <div className="flex-1 bg-white dark:bg-gray-900 flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
 
           {/* Mobil-logo */}
@@ -125,14 +125,14 @@ function LoginPage() {
 
           {mode === "login" ? (
             <>
-              <h2 className="text-2xl font-bold text-gray-900 mb-1 tracking-tight">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1 tracking-tight">
                 Välkommen tillbaka
               </h2>
-              <p className="text-sm text-gray-400 mb-8">Logga in för att fortsätta.</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mb-8">Logga in för att fortsätta.</p>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                     E-post
                   </label>
                   <input
@@ -142,12 +142,12 @@ function LoginPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     placeholder="du@exempel.se"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
+                    className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm bg-gray-50 dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white dark:focus:bg-gray-700 transition-colors"
                   />
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Lösenord
                     </label>
                     <button
@@ -165,13 +165,13 @@ function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     placeholder="••••••••"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white transition-colors"
+                    className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm bg-gray-50 dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent focus:bg-white dark:focus:bg-gray-700 transition-colors"
                   />
                 </div>
 
                 {error && (
-                  <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                    <p className="text-sm text-red-500">{error}</p>
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl px-4 py-3">
+                    <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
                   </div>
                 )}
 
@@ -184,9 +184,9 @@ function LoginPage() {
                 </button>
               </form>
 
-              <p className="text-sm text-gray-400 text-center mt-6">
+              <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-6">
                 Har du inget konto?{" "}
-                <span className="text-violet-600 font-medium">Begär tillgång</span>
+                <span className="text-violet-600 dark:text-violet-400 font-medium">Begär tillgång</span>
                 {" "}av din administratör.
               </p>
             </>

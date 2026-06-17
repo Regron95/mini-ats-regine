@@ -5,6 +5,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const json = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -20,10 +26,7 @@ Deno.serve(async (req) => {
     const { email, password, role, company_id } = await req.json();
 
     if (!email || !password) {
-      return new Response(
-        JSON.stringify({ error: "E-post och lösenord krävs" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "E-post och lösenord krävs" });
     }
 
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -33,25 +36,24 @@ Deno.serve(async (req) => {
     });
 
     if (authError) {
-      return new Response(
-        JSON.stringify({ error: authError.message }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: authError.message });
     }
 
-    await supabaseAdmin
+    const { error: profileError } = await supabaseAdmin
       .from("profiles")
-      .update({ role: role ?? "customer", company_id: company_id ?? null })
-      .eq("id", authData.user.id);
+      .upsert({
+        id: authData.user.id,
+        email: authData.user.email,
+        role: role ?? "customer",
+        company_id: company_id ?? null,
+      });
 
-    return new Response(
-      JSON.stringify({ user: { id: authData.user.id, email: authData.user.email } }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    if (profileError) {
+      return json({ error: "Användare skapad men profil misslyckades: " + profileError.message });
+    }
+
+    return json({ user: { id: authData.user.id, email: authData.user.email } });
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: String(err) });
   }
 });
